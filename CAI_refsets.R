@@ -2,6 +2,8 @@
 # Build CAI reference sets from merged_counts CSV (host + phage)
 #   - Host: 50 genes across ALL samples
 #   - Phage: 20 genes across INFECTED samples only
+#   - assumes phage and host data - if phage is not present
+#     simply skip or remove the phage and design.tsv steps
 # ============================================================
 if (!require("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
@@ -17,11 +19,14 @@ suppressPackageStartupMessages({
   library(edgeR)
 })
 
-# ----------------------------
+# =======================
 # LOAD COUNTS AND DESIGN
-# ----------------------------
-merged_counts_csv <- "/Users/nross1994/Documents/Doore Lab/RNAseq Analysis/merged_counts_ALL.csv"
-design_tsv <- "/Users/nross1994/Documents/Doore Lab/RNAseq Analysis/design.tsv"
+# =======================
+# inputs: counts file with ALL merged counts from RNAseq
+# RNAseq design - assumes phage-infected and uninfected samples
+
+merged_counts_csv <- "/path/to/yourfile/merged_counts_ALL.csv"
+design_tsv <- "/path/to/yourfile/design.tsv"
 
 # if CSV is "wide format" - one column for geneid and one column for each sample - convert to long
 wide <- read_csv(merged_counts_csv, show_col_types = FALSE)
@@ -38,8 +43,8 @@ merged_long <- wide %>%
     sample = as.character(sample),
     count  = as.numeric(count),
     genome = case_when(
-      str_detect(GeneID, "FDI99") ~ "Sf14",     # phage
-      TRUE                       ~ "2457T"     # host (fallback)
+      str_detect(GeneID, "phage_locus_prefix") ~ "phage",     # phage
+      TRUE                       ~ "host"     # host (fallback)
     )
   )
 
@@ -48,10 +53,12 @@ sample_col <- "sample"        # e.g., "sample", "well", "sample_id"
 count_col  <- "count"         # e.g., "count", "counts", "raw_count"
 genome_col <- "genome"        # e.g., "genome", "organism", "species"
 
-host_genome_value  <- "2457T" 
-phage_genome_value <- "Sf14"  
+host_genome_value  <- "host" 
+phage_genome_value <- "phage"  
 
 # read design and isolate infected samples for phage analysis
+# assumes "infected" samples are indicated with the letter "I"
+# if all samples are infected, can skip design.tsv altogether
 design <- read_csv(design_tsv, show_col_types = FALSE)
 head(design)
 
@@ -63,13 +70,13 @@ infected_samples <- design %>%
 
 if (length(infected_samples) == 0) stop("No infected samples found (condition == 'I').")
 
-# ---------------
+# ===============
 # SET PARAMETERS
-# ---------------
+# ===============
 
-# Reference set sizes
-n_host  <- 50
-n_phage <- 20
+# Reference set sizes - can adjust
+n_host  <- 50  # good ref set size for bacterial genomes
+n_phage <- 20  # good ref set size for phage genomes
 
 # Expression / prevalence thresholds
 host_present_cpm <- 1     # gene considered "present" in a sample if CPM >= this
@@ -88,9 +95,9 @@ sd_penalty <- 0.5              # increase to penalize variability more strongly
 out_dir <- "./CAI_reference_sets"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
-# ----------------------------
-# Helpers
-# ----------------------------
+# =================
+# Helper Functions
+# =================
 make_logcpm_matrix <- function(df_long, gene_col, sample_col, count_col) {
   mat_df <- df_long %>%
     select(all_of(c(gene_col, sample_col, count_col))) %>%
@@ -143,9 +150,9 @@ select_reference_set <- function(metrics_tbl, n_ref, prevalence_min, sd_quantile
     slice_head(n = n_ref)
 }
 
-# ----------------------------
+# ========================================
 # HOST reference set (across ALL samples)
-# ----------------------------
+# ========================================
 host_long <- merged_long %>% filter(genome == host_genome_value)
 
 host_mats <- make_logcpm_matrix(host_long, "GeneID", "sample", "count")
@@ -160,9 +167,9 @@ host_ref <- select_reference_set(host_metrics, n_ref = n_host,
 write_csv(host_metrics, file.path(out_dir, "host_gene_metrics_all_samples.csv"))
 write_csv(host_ref,     file.path(out_dir, paste0("host_reference_set_top_", n_host, ".csv")))
 
-# ----------------------------
+# ============================================
 # PHAGE reference set (INFECTED samples only)
-# ----------------------------
+# ============================================
 phage_long <- merged_long %>%
   filter(genome == phage_genome_value, sample %in% infected_samples)
 
@@ -178,6 +185,7 @@ phage_ref <- select_reference_set(phage_metrics, n_ref = n_phage,
 write_csv(phage_metrics, file.path(out_dir, "phage_gene_metrics_infected_samples.csv"))
 write_csv(phage_ref,     file.path(out_dir, paste0("phage_reference_set_top_", n_phage, ".csv")))
 
+# check outputs
 cat("DONE.\n")
 cat("Host ref:", file.path(out_dir, paste0('host_reference_set_top_', n_host, '.csv')), "\n")
 cat("Phage ref:", file.path(out_dir, paste0('phage_reference_set_top_', n_phage, '.csv')), "\n")
