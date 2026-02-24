@@ -12,22 +12,21 @@ suppressPackageStartupMessages({
 })
 
 # ============================
-# 1) Compute CPM for one file
+# 1. Compute CPM for one file
 # ============================
 
-counts_path <- "/Users/nross1994/Documents/Doore Lab/RNAseq Analysis/examples for nykki/LB_37_A1-A11/A9.txt"
-count_col   <- "A9.bam"
+counts_path <- "/path/to/your/counts_file.txt"
+count_col   <- "count_col_name"
 
 counts <- readr::read_tsv(counts_path, show_col_types = FALSE)
 
-stopifnot("Geneid" %in% names(counts))
+stopifnot("Geneid" %in% names(counts)) # change "Geneid" to whatever your gene column is
 stopifnot(count_col %in% names(counts))
 
 total_counts <- sum(counts[[count_col]], na.rm = TRUE)
 
-# Build CPM table keyed by a JOIN ID
-# - host: S_RS....
-# - phage in counts: FDI99_gp### (or similar) often prefixed "FDI99_"
+# Build CPM table keyed by a LOCUS TAG ID
+
 expr <- counts %>%
   transmute(
     geneid_raw     = .data$Geneid,
@@ -35,25 +34,24 @@ expr <- counts %>%
     CPM            = .data[[count_col]] / total_counts * 1e6
   ) %>%
   mutate(
-    locus_tag_join = sub("^FDI99_", "", locus_tag_raw)  # normalize for joining
+    locus_tag = sub("^locus_tag_prefix", "", locus_tag_raw)  # change "locus_tag_prefix" to the prefix for your organism
   ) %>%
-  group_by(locus_tag_join) %>%
+  group_by(locus_tag) %>%
   summarise(CPM = sum(CPM, na.rm = TRUE), .groups = "drop")
 
 cat("Counts rows:", nrow(counts), "\n")
-cat("Expr distinct locus_tag_join:", n_distinct(expr$locus_tag_join), "\n")
+cat("Expr distinct locus_tag:", n_distinct(expr$locus_tag), "\n")
 
 
-# =======================================
-# 2) Parse GenBank and extract CDS sequences
-# =======================================
+# ===========================================
+# 2. Parse GenBank and extract CDS sequences
+# ===========================================
 
-host_path <- "/Users/nross1994/Documents/Doore Lab/RNAseq Analysis/examples for nykki/2457T_genbank.gb"
-phage_path <- "/Users/nross1994/Documents/Doore Lab/RNAseq Analysis/examples for nykki/Sf14_genbank.gb"
+gb_path <- "/path/to/your_genbank.gb"
 
-host_txt <- readLines(host_path)
-phage_txt <- readLines(phage_path)
+gb_txt <- readLines(gb_path)
 
+# function to extract genome from GenBank file
 extract_genome_from_gb <- function(txt) {
   origin_i <- grep("^ORIGIN", txt)[1]
   end_i <- grep("^//", txt)
@@ -65,12 +63,11 @@ extract_genome_from_gb <- function(txt) {
   tolower(genome)
 }
 
-host_genome  <- extract_genome_from_gb(host_txt)
-phage_genome <- extract_genome_from_gb(phage_txt)
+organism_genome  <- extract_genome_from_gb(gb_txt)
 
-cat("Host genome length:", nchar(host_genome), "\n")
-cat("Phage genome length:", nchar(phage_genome), "\n")
+cat("Organism genome length:", nchar(organism_genome), "\n")
 
+# functions generate FEATURES block (identify different features)
 get_feat_block <- function(txt) {
   feat_i   <- which(txt == "FEATURES             Location/Qualifiers")[1]
   origin_i <- grep("^ORIGIN", txt)[1]
@@ -107,7 +104,7 @@ get_qual_num <- function(rec_text, key) {
   suppressWarnings(as.integer(x))
 }
 
-# build feature table
+# build feature table - adjust column names to your own
 build_feature_df <- function(records) {
   purrr::map_df(records, function(rec) {
     hdr <- parse_feature_header(rec[1])
@@ -127,21 +124,16 @@ build_feature_df <- function(records) {
 }
 
 # Build features
-host_records  <- split_records(get_feat_block(host_txt))
-phage_records <- split_records(get_feat_block(phage_txt))
+organism_records  <- split_records(get_feat_block(gb_txt))
 
-host_features  <- build_feature_df(host_records)
-phage_features <- build_feature_df(phage_records)
+organism_features  <- build_feature_df(organism_records)
 
-cat("Host feature types:\n")
-print(dplyr::count(host_features, type) %>% dplyr::arrange(dplyr::desc(n)), n = 50)
+cat("Organism feature types:\n")
+print(dplyr::count(organism_features, type) %>% dplyr::arrange(dplyr::desc(n)), n = 50)
 
-cat("Phage feature types:\n")
-print(dplyr::count(phage_features, type) %>% dplyr::arrange(dplyr::desc(n)), n = 50)
-
-# ----------------------------
-# Sequence extraction helpers
-# ----------------------------
+# ======================================================================
+# 3. Sequence extraction helpers and adding sequences to feature tables
+# ======================================================================
 rev_comp_str <- function(s) {
   s <- tolower(s)
   s <- chartr("acgtn", "tgcan", s)
@@ -173,49 +165,26 @@ extract_feature_seq <- function(genome, loc) {
 }
 
 # Add sequences
-host_features <- host_features %>%
-  mutate(seq = purrr::map_chr(location, ~extract_feature_seq(host_genome, .x)))
-
-phage_features <- phage_features %>%
-  mutate(seq = purrr::map_chr(location, ~extract_feature_seq(phage_genome, .x)))
+organism_features <- organism_features %>%
+  mutate(seq = purrr::map_chr(location, ~extract_feature_seq(organism_genome, .x))) # prevents accidental double columns
 
 
-# ======================================
-# 3) Build CDS table (KEY STEP FOR 4495)
-# ======================================
+# ================================
+# 4. Build CDS table for organism
+# ================================
 
-host_cds <- host_features %>%
+# can remove any of the columns if desired - my data needed all for downstream analyses
+organism_cds <- organism_features %>%
   dplyr::filter(type == "CDS") %>%
   dplyr::select(type, location, gene, locus_tag, protein_id, product, codon_start, transl_table, note, seq) %>%
-  dplyr::mutate(genome = "2457T")
+  dplyr::mutate(genome = "Your_Genome")
 
-phage_cds <- phage_features %>%
-  dplyr::filter(type == "CDS") %>%
-  dplyr::filter(!is.na(locus_tag) & locus_tag != "") %>%
-  dplyr::mutate(genome = "Sf14")
-
-cat("Host CDS:", nrow(host_cds), "\n")
-cat("Phage CDS:", nrow(phage_cds), "\n")
-
-cds_tbl <- dplyr::bind_rows(host_cds, phage_cds) %>%
-  dplyr::group_by(genome) %>%
-  dplyr::mutate(
-    cds_uid     = paste0(genome, "_CDS_", dplyr::row_number()),
-    codon_start = dplyr::if_else(is.na(codon_start), 1L, codon_start),
-    seq_cds     = substr(seq, codon_start, nchar(seq)),
-    locus_tag_join = dplyr::if_else(genome == "Sf14", sub("^FDI99_", "", locus_tag), locus_tag),
-    
-    # NEW: keep protein_id (host from GenBank; phage will be NA)
-    protein_id = dplyr::if_else(genome == "Sf14", NA_character_, protein_id)
-  ) %>%
-  dplyr::ungroup()
-
-print(dplyr::count(cds_tbl, genome), n = 10)
+cat("Organism CDS:", nrow(organism_cds), "\n")
 
 
-# ======================================
-# 4) Codon counts per CDS
-# ======================================
+# ==================================
+# 5. Calculate codon counts per CDS
+# ==================================
 
 split_codons <- function(seq) {
   if (is.na(seq)) return(character(0))
@@ -237,7 +206,7 @@ count_codons <- function(seq) {
   tibble(codon = names(tab), count = as.integer(tab))
 }
 
-codon_counts_long <- cds_tbl %>%
+codon_counts_long <- organism_cds %>%
   mutate(codon_tbl = purrr::map(seq_cds, count_codons)) %>%
   tidyr::unnest(codon_tbl) %>%
   transmute(
@@ -252,10 +221,11 @@ codon_counts_long <- cds_tbl %>%
 cat("Distinct CDS in codon_counts_long:", n_distinct(codon_counts_long$cds_uid), "\n")
 
 
-# ======================================
-# 5) Join CPM weights (missing genes => CPM=0)
-# ======================================
+# =============================================
+# 6. Join CPM weights (missing genes => CPM=0)
+# =============================================
 
+# takes expression into account from counts data
 codon_counts_weighted <- codon_counts_long %>%
   left_join(expr, by = "locus_tag_join") %>%
   mutate(CPM = coalesce(CPM, 0))
@@ -265,6 +235,6 @@ cat("Genes with CPM>0:", codon_counts_weighted %>% distinct(cds_uid, CPM) %>% su
 
 write.csv(
   codon_counts_weighted,
-  "/Users/nross1994/Documents/Doore Lab/RNAseq Analysis/examples for nykki/all_codon_table.csv",
+  "/path/to/yourdata/all_codon_table.csv",
   row.names = FALSE
 )
