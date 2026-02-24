@@ -1,7 +1,7 @@
 # CAI
 generate codon tables and reference gene sets, calculate CAI - ONE organism
 
-This repository contains 3 scripts - one to generate expression-weighted codon tables for ONE organism, one to generate a reference set of genes from RNAseq expression data, and one to generate a codon table from the reference genes and calculate Codon Adaptation Index (CAI) for expression-weighted codon usage
+This repository contains 3 scripts - one to generate expression-weighted codon tables for ONE organism (using CPM from raw counts data), one to generate a reference set of genes from RNAseq expression data, and one to generate a codon table from the reference genes and calculate Codon Adaptation Index (CAI) for expression-weighted codon usage
 
 Determines how well-adapted the actual codons used are to the codon usage of the most highly-expressed genes in the genome
 
