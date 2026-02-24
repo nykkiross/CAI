@@ -32,11 +32,11 @@ phage_ref_ids <- phage_ref %>%
   transmute(
     phage_gp = gene %>%
       sub("^gene-", "", .) %>%         # remove leading "gene-"
-      sub("^FDI99_", "", .)            # remove leading "FDI99_"
+      sub("^phage_locus_prefix_", "", .)            # remove leading "prefix_" if necessary; can be skipped
   )
 
 host_ref_codon <- codon_counts_weighted %>%
-  filter(genome == "2457T", locus_tag_join %in% host_ref_ids) %>%
+  filter(genome == "host", locus_tag_join %in% host_ref_ids) %>%
   mutate(weighted_count = count * CPM) %>%
   group_by(codon) %>%
   summarise(count = sum(weighted_count, na.rm = TRUE), .groups = "drop") %>%
@@ -46,7 +46,7 @@ host_ref_codon <- codon_counts_weighted %>%
   summarise(count = sum(count), .groups = "drop")
 
 phage_ref_codon <- codon_counts_weighted %>%
-  filter(genome == "Sf14") %>%
+  filter(genome == "phage") %>%
   mutate(
     phage_gp = locus_tag_join %>% sub("^gene-", "", .)  # just in case
   ) %>%
