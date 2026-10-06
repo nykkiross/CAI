@@ -7,6 +7,6 @@ Can also be adapted for host/phage pairs - CAI_refsets.R and CAI_calc.R assume p
 
 Determines how well-adapted the actual codons used are to the codon usage of the most highly-expressed genes in the genome
 
-Uses expression data for accuracy in expression
+Uses expression data for accuracy in analysis
 
 If you have any questions or issues, feel free to contact me at nicole.ross@ufl.edu :) 
